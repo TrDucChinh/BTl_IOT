@@ -14,21 +14,21 @@ WiFiClientSecure client;
 HTTPClient http;
 
 // WIFI
-const char* ssid = "P2407-DucChinh";
-const char* pass = "ducchinh";
+const char *ssid = "P2407-DucChinh";
+const char *pass = "ducchinh";
 
 // API BASE
 String API_BASE = "https://script.google.com/macros/s/AKfycbyxb7WrXFDOlkKjSChvhm1kBq-yiGBzezWE4wFqAKX2RPMkj7rdzQkyWCoc8enOdY8fng/exec";
 
 // STATE
 String activeClass = "";
-String activeMode  = "";
-String activeCa    = "Ca1";
+String activeMode = "";
+String activeCa = "Ca1";
 bool startFlag = false;
 
 bool checkoutSession = false;
-bool checkinSession  = false;  
-bool isProcessing    = false;
+bool checkinSession = false;
+bool isProcessing = false;
 
 // STATUS
 struct StatusInfo {
@@ -87,31 +87,42 @@ void readStartClass() {
 
   bool found = false;
   String newClass = "";
-  String newMode  = "";
+  String newMode = "";
 
   for (JsonObject c : doc.as<JsonArray>()) {
     if (c["Start"].as<bool>()) {
       newClass = c["ClassID"].as<String>();
-      newMode  = c["Mode"].as<String>();
+      newMode = c["Mode"].as<String>();
       found = true;
       break;
     }
   }
 
   if (!found) {
+    if (startFlag == true) {
+      Serial.println("===== CLASS STOP =====");
+    }
+
     startFlag = false;
+    activeClass = "";
+    activeMode = "";
+    checkoutSession = false;
+    checkinSession = false;
+    isProcessing = false;
+
     return;
   }
+
 
   if (newClass != activeClass || newMode != activeMode) {
 
     activeClass = newClass;
-    activeMode  = newMode;
-    startFlag   = true;
+    activeMode = newMode;
+    startFlag = true;
 
     checkoutSession = false;
-    checkinSession  = false;
-    isProcessing    = false;
+    checkinSession = false;
+    isProcessing = false;
 
     Serial.println("===== CLASS START =====");
     Serial.println("Class : " + activeClass);
@@ -132,7 +143,7 @@ String getStudents() {
    CHECK STATUS
 ============================================================ */
 StatusInfo getStatus() {
-  StatusInfo st = {0,0,0,0,0};
+  StatusInfo st = { 0, 0, 0, 0, 0 };
 
   String url = API_BASE + "?action=checkUpdate";
   url += "&class=" + activeClass;
@@ -142,11 +153,11 @@ StatusInfo getStatus() {
   DynamicJsonDocument doc(2048);
   if (deserializeJson(doc, json)) return st;
 
-  st.total     = doc["total"];
+  st.total = doc["total"];
   st.checkedIn = doc["checkedIn"];
-  st.checkedOut= doc["checkedOut"];
-  st.leftIn    = doc["leftToCheckIn"];
-  st.leftOut   = doc["leftToCheckOut"];
+  st.checkedOut = doc["checkedOut"];
+  st.leftIn = doc["leftToCheckIn"];
+  st.leftOut = doc["leftToCheckOut"];
 
   return st;
 }
@@ -168,8 +179,7 @@ void sendAttendance(String sid, String name, String event, int fid) {
 }
 
 void saveFinger(String sid, String name, int fid) {
-  GET(API_BASE + "?action=registerFinger&classID=" + activeClass +
-                   "&studentID=" + sid + "&fingerID=" + fid);
+  GET(API_BASE + "?action=registerFinger&classID=" + activeClass + "&studentID=" + sid + "&fingerID=" + fid);
 }
 
 void autoUpdateMode(String mode) {
@@ -200,7 +210,7 @@ bool enrollFinger(int id) {
    REGISTER ALL
 ============================================================ */
 void registerAll() {
-  
+
   static bool loaded = false;
   static DynamicJsonDocument doc(4096);
   static JsonArray arr;
@@ -217,7 +227,7 @@ void registerAll() {
 
   if (index >= arr.size()) {
     Serial.println("=== ĐĂNG KÝ XONG ===");
-    autoUpdateMode("Checkout"); 
+    autoUpdateMode("Checkout");
     loaded = false;
     isProcessing = false;
     return;
@@ -250,7 +260,7 @@ void registerAll() {
 ============================================================ */
 bool searchFinger(int &fid, String &sid, String &name) {
   if (finger.getImage() != FINGERPRINT_OK) return false;
-  if (finger.image2Tz()   != FINGERPRINT_OK) return false;
+  if (finger.image2Tz() != FINGERPRINT_OK) return false;
   if (finger.fingerFastSearch() != FINGERPRINT_OK) return false;
 
   fid = finger.fingerID;
@@ -261,7 +271,7 @@ bool searchFinger(int &fid, String &sid, String &name) {
 
   for (JsonObject s : doc.as<JsonArray>()) {
     if (s["FingerID"].as<int>() == fid) {
-      sid  = s["StudentID"].as<String>();
+      sid = s["StudentID"].as<String>();
       name = s["Name"].as<String>();
       return true;
     }
@@ -280,7 +290,8 @@ void doCheckIn() {
     Serial.println("===== CHECK-IN BẮT ĐẦU =====");
   }
 
-  int fid; String sid, name;
+  int fid;
+  String sid, name;
 
   if (searchFinger(fid, sid, name)) {
 
@@ -304,12 +315,22 @@ void doCheckIn() {
 ============================================================ */
 void doCheckOut() {
 
+  StatusInfo st0 = getStatus();
+  if (st0.checkedIn == 0) {
+    Serial.println("Vui lòng CHECKIN để có thể CHECKOUT");
+    autoUpdateMode("Attendance");
+    checkoutSession = false;
+    isProcessing = false;
+    return;
+  }
+
   if (!checkoutSession) {
     checkoutSession = true;
     Serial.println("===== CHECKOUT BẮT ĐẦU =====");
   }
 
-  int fid; String sid, name;
+  int fid;
+  String sid, name;
 
   if (searchFinger(fid, sid, name)) {
 
@@ -319,6 +340,7 @@ void doCheckOut() {
     StatusInfo st = getStatus();
     Serial.printf("Còn %d sinh viên chưa Check-Out\n", st.leftOut);
 
+    // ⭐ Nếu check-out xong hết → chuyển về Attendance
     if (st.leftOut == 0) {
       Serial.println("🎉 Hoàn tất CHECKOUT!");
       autoUpdateMode("Attendance");
@@ -327,6 +349,7 @@ void doCheckOut() {
     }
   }
 }
+
 
 /* ============================================================
    SETUP
@@ -354,16 +377,17 @@ void setup() {
 ============================================================ */
 void loop() {
 
-  if (!isProcessing) readStartClass();
+  readStartClass();
 
   if (!startFlag) {
+    isProcessing = false;
     delay(100);
     return;
   }
 
   isProcessing = true;
 
-  if      (activeMode == "Register")   registerAll();
+  if (activeMode == "Register")       registerAll();
   else if (activeMode == "Attendance") doCheckIn();
   else if (activeMode == "Checkout")   doCheckOut();
 

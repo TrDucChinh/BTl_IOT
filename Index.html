@@ -9,19 +9,23 @@
   <style>
     #loadingOverlay {
       position: fixed;
-      top: 0; left: 0;
-      width: 100%; height: 100%;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
       background: rgba(255, 255, 255, 0.7);
       display: none;
       justify-content: center;
       align-items: center;
       z-index: 9999;
     }
+
     #startStatus {
       margin-top: 10px;
       font-size: 1.1rem;
       font-weight: bold;
     }
+
     .stat-box {
       padding: 15px;
       border-radius: 8px;
@@ -33,22 +37,21 @@
 
 <body class="container mt-4">
 
-  <!-- LOADING -->
   <div id="loadingOverlay">
-    <div class="spinner-border text-primary" role="status" style="width: 4rem; height: 4rem;"></div>
+    <div class="spinner-border text-primary" style="width:4rem;height:4rem;"></div>
   </div>
 
   <h2 class="mb-4 text-center">Quản lý lớp học theo Ca</h2>
 
-  <!-- CHỌN LỚP -->
+  <!-- CLASS -->
   <div class="mb-3">
-    <label class="form-label fw-bold">Chọn lớp:</label>
+    <label class="fw-bold">Chọn lớp:</label>
     <select id="classSelect" class="form-select"></select>
   </div>
 
-  <!-- CHỌN CA -->
+  <!-- CA -->
   <div class="mb-3">
-    <label class="form-label fw-bold">Chọn ca học:</label>
+    <label class="fw-bold">Chọn ca học:</label>
     <select id="caSelect" class="form-select">
       <option value="Ca1">Ca 1</option>
       <option value="Ca2">Ca 2</option>
@@ -58,21 +61,16 @@
     </select>
   </div>
 
-  <!-- TRẠNG THÁI START -->
   <div id="startStatus"></div>
 
-  <!-- MODE HIỆN TẠI -->
-  <div class="mb-3 mt-3">
+  <div class="mt-3">
     <label class="fw-bold">Chế độ hiện tại:</label>
     <div id="currentMode" class="fs-5 text-primary"></div>
   </div>
 
-  <!-- BUTTONS -->
-  <div class="mt-4" id="buttonsArea"></div>
+  <div id="buttonsArea" class="mt-4"></div>
 
-  <!-- DASHBOARD -->
   <h4 class="mt-4">Dashboard thống kê</h4>
-
   <div class="row mt-3">
     <div class="col-md-3">
       <div class="stat-box bg-primary">
@@ -100,7 +98,6 @@
     </div>
   </div>
 
-  <!-- DANH SÁCH ĐIỂM DANH -->
   <h4 class="mt-4">Danh sách điểm danh realtime</h4>
   <table class="table table-bordered mt-2">
     <thead class="table-dark">
@@ -114,190 +111,236 @@
     <tbody id="attendanceBody"></tbody>
   </table>
 
-<script>
-const ROOT = "https://script.google.com/macros/s/AKfycbyxb7WrXFDOlkKjSChvhm1kBq-yiGBzezWE4wFqAKX2RPMkj7rdzQkyWCoc8enOdY8fng/exec";
+  <script>
+    /* ---------------------------------------------
+       CONFIG
+    --------------------------------------------- */
+    const ROOT = "https://script.google.com/macros/s/AKfycbyxb7WrXFDOlkKjSChvhm1kBq-yiGBzezWE4wFqAKX2RPMkj7rdzQkyWCoc8enOdY8fng/exec";
 
-let sessionID = 0;      
-let currentClass = "";
-let currentCa = "";
+    /* Âm thanh (đặt file mp3 cạnh file HTML) */
+    const CHECKIN_SOUND_URL = "thank_you.mp3";
+    const CHECKOUT_SOUND_URL = "thank_you.mp3";
 
-/* SHOW/HIDE LOADING */
-function showLoading() { document.getElementById("loadingOverlay").style.display = "flex"; }
-function hideLoading() { document.getElementById("loadingOverlay").style.display = "none"; }
+    /* ---------------------------------------------
+       GLOBAL STATE
+    --------------------------------------------- */
+    let sessionID = 0;
+    let currentClass = "";
+    let currentCa = "";
+    let lastCount = 0;
 
-/* RESET UI */
-function resetUI() {
-  document.getElementById("attendanceBody").innerHTML = "";
-  document.getElementById("statTotal").innerText = "0";
-  document.getElementById("statIn").innerText = "0";
-  document.getElementById("statLeftIn").innerText = "0";
-  document.getElementById("statLeftOut").innerText = "0";
-  document.getElementById("currentMode").innerHTML = "";
-  document.getElementById("startStatus").innerHTML = "";
-  document.getElementById("buttonsArea").innerHTML = "";
-}
+    /* ---------------------------------------------
+       UTILS
+    --------------------------------------------- */
+    function playSound(type) {
+      let url = type === "in" ? CHECKIN_SOUND_URL : CHECKOUT_SOUND_URL;
+      let audio = new Audio(url);
+      audio.volume = 0.3;
+      audio.play().catch(e => console.log("Audio blocked:", e));
+    }
 
-/* LOAD CLASS LIST */
-function loadClasses() {
-  fetch(ROOT + "?action=getClasses&nocache=" + Date.now())
-    .then(r => r.json())
-    .then(data => {
-      let select = document.getElementById("classSelect");
-      select.innerHTML = "";
-      data.forEach(c => {
-        select.innerHTML += `<option value="${c.ClassID}">${c.ClassName}</option>`;
-      });
+    function showLoading() { document.getElementById("loadingOverlay").style.display = "flex"; }
+    function hideLoading() { document.getElementById("loadingOverlay").style.display = "none"; }
 
-      if (!currentClass) currentClass = select.value;
+    function resetUI() {
+      lastCount = 0;
+      document.getElementById("attendanceBody").innerHTML = "";
+      document.getElementById("statTotal").innerText = "0";
+      document.getElementById("statIn").innerText = "0";
+      document.getElementById("statLeftIn").innerText = "0";
+      document.getElementById("statLeftOut").innerText = "0";
+      document.getElementById("currentMode").innerHTML = "";
+      document.getElementById("startStatus").innerHTML = "";
+      document.getElementById("buttonsArea").innerHTML = "";
+    }
 
+    function formatTime(t) {
+      return t ? new Date(t).toLocaleString("vi-VN") : "";
+    }
+
+    /* ---------------------------------------------
+       LOAD CLASS LIST
+    --------------------------------------------- */
+    function loadClasses() {
+      fetch(ROOT + "?action=getClasses&nocache=" + Date.now())
+        .then(r => r.json())
+        .then(list => {
+          let sel = document.getElementById("classSelect");
+          sel.innerHTML = "";
+          list.forEach(c => {
+            sel.innerHTML += `<option value="${c.ClassID}">${c.ClassName}</option>`;
+          });
+
+          if (!currentClass) currentClass = sel.value;
+
+          refreshAll();
+        });
+    }
+
+    /* ---------------------------------------------
+       REFRESH FULL UI
+    --------------------------------------------- */
+    function refreshAll() {
+      let sid = sessionID;
+      let classID = currentClass;
+      let ca = currentCa;
+
+      /* Mode + Start */
+      fetch(ROOT + "?action=getClasses&nocache=" + Date.now())
+        .then(r => r.json())
+        .then(list => {
+          if (sid !== sessionID) return;
+
+          let obj = list.find(c => c.ClassID === classID);
+          if (!obj) return;
+
+          document.getElementById("currentMode").innerText = obj.Mode;
+
+          let st = document.getElementById("startStatus");
+          st.innerText = obj.Start ? "Trạng thái: ĐANG HOẠT ĐỘNG"
+            : "Trạng thái: ĐÃ TẮT";
+          st.style.color = obj.Start ? "#28a745" : "#d9534f";
+
+          renderButtons(obj);
+        });
+
+      /* Dashboard */
+      fetch(`${ROOT}?action=checkUpdate&class=${classID}&ca=${ca}`)
+        .then(r => r.json())
+        .then(st => {
+          if (sid !== sessionID) return;
+
+          document.getElementById("statTotal").innerText = st.total;
+          document.getElementById("statIn").innerText = st.checkedIn;
+          document.getElementById("statLeftIn").innerText = st.leftToCheckIn;
+          document.getElementById("statLeftOut").innerText = st.leftToCheckOut;
+        });
+
+      /* Attendance — có delay mềm để tránh mất sự kiện khi Register */
+      fetch(`${ROOT}?action=getAttendance&class=${classID}&ca=${ca}`)
+        .then(r => r.json())
+        .then(list => {
+
+          if (sid !== sessionID) return;
+
+          setTimeout(() => {
+            /* SOUND SYSTEM NEW */
+            list.forEach((row, idx) => {
+              let old = lastAttendance[idx];
+
+              // Phát âm khi có thay đổi Check-In
+              if (!old || old.CheckIn !== row.CheckIn) {
+                if (row.CheckIn) playSound("in");
+              }
+
+              // Phát âm khi có thay đổi Check-Out
+              if (old && old.CheckOut !== row.CheckOut) {
+                if (row.CheckOut) playSound("out");
+              }
+            });
+
+            // Cập nhật lại dữ liệu lần trước
+            lastAttendance = JSON.parse(JSON.stringify(list));
+
+
+
+            /* Render table */
+            let body = document.getElementById("attendanceBody");
+            body.innerHTML = "";
+            list.forEach(r => {
+              body.innerHTML += `
+            <tr>
+              <td>${r.StudentID}</td>
+              <td>${r.Name}</td>
+              <td>${formatTime(r.CheckIn)}</td>
+              <td>${formatTime(r.CheckOut)}</td>
+            </tr>`;
+            });
+          }, 200);
+
+        });
+    }
+
+    /* ---------------------------------------------
+       BUTTONS
+    --------------------------------------------- */
+    function renderButtons(obj) {
+      let btn = document.getElementById("buttonsArea");
+      btn.innerHTML = "";
+
+      if (!obj.Start) {
+        btn.innerHTML += `<button class="btn btn-warning me-2" onclick="startClass()">Bắt đầu</button>`;
+      } else {
+        btn.innerHTML += `<button class="btn btn-danger me-2" onclick="stopClass()">Dừng</button>`;
+      }
+
+      if (obj.Mode === "Register") return;
+
+      if (obj.Mode === "Attendance") {
+        btn.innerHTML += `<button class="btn btn-danger" onclick="changeMode('Checkout')">Chuyển sang Check-out</button>`;
+        return;
+      }
+
+      if (obj.Mode === "Checkout") {
+        btn.innerHTML += `<button class="btn btn-success" onclick="changeMode('Attendance')">Chuyển sang Điểm danh</button>`;
+        return;
+      }
+    }
+
+    /* ---------------------------------------------
+       ACTIONS
+    --------------------------------------------- */
+    function startClass() {
+      showLoading();
+      fetch(`${ROOT}?action=start&class=${currentClass}&ca=${currentCa}`)
+        .then(() => refreshAll())
+        .finally(hideLoading);
+    }
+
+    function stopClass() {
+      showLoading();
+      fetch(`${ROOT}?action=stop&class=${currentClass}`)
+        .then(() => refreshAll())
+        .finally(hideLoading);
+    }
+
+    function changeMode(mode) {
+      showLoading();
+      fetch(`${ROOT}?action=changeMode&class=${currentClass}&mode=${mode}`)
+        .then(() => refreshAll())
+        .finally(hideLoading);
+    }
+
+    /* ---------------------------------------------
+       EVENTS
+    --------------------------------------------- */
+    document.getElementById("classSelect").addEventListener("change", e => {
+      currentClass = e.target.value;
+      sessionID++;
+      resetUI();
       refreshAll();
     });
-}
 
-/* LOAD FULL UI */
-function refreshAll() {
-  let thisSession = sessionID;  // gắn ID
-
-  let classID = currentClass;
-  let ca = currentCa;
-
-  // Nếu request về nhưng sessionID thay đổi → bỏ qua
-  fetch(ROOT + "?action=getClasses&nocache=" + Date.now())
-    .then(r => r.json())
-    .then(list => {
-      if (thisSession !== sessionID) return;
-
-      let obj = list.find(c => c.ClassID === classID);
-      if (!obj) return;
-
-      document.getElementById("currentMode").innerText = obj.Mode;
-
-      let st = document.getElementById("startStatus");
-      st.innerText = obj.Start ? "Trạng thái: ĐANG HOẠT ĐỘNG" : "Trạng thái: ĐÃ TẮT";
-      st.style.color = obj.Start ? "#28a745" : "#d9534f";
-
-      renderButtons(obj);
+    document.getElementById("caSelect").addEventListener("change", e => {
+      currentCa = e.target.value;
+      sessionID++;
+      resetUI();
+      refreshAll();
     });
 
-  fetch(`${ROOT}?action=checkUpdate&class=${classID}&ca=${ca}`)
-    .then(r => r.json())
-    .then(st => {
-      if (thisSession !== sessionID) return;
+    /* ---------------------------------------------
+       AUTO REFRESH
+    --------------------------------------------- */
+    setInterval(refreshAll, 900);
 
-      document.getElementById("statTotal").innerText = st.total;
-      document.getElementById("statIn").innerText = st.checkedIn;
-      document.getElementById("statLeftIn").innerText = st.leftToCheckIn;
-      document.getElementById("statLeftOut").innerText = st.leftToCheckOut;
+    /* INIT */
+    document.addEventListener("DOMContentLoaded", () => {
+      currentCa = document.getElementById("caSelect").value;
+      loadClasses();
     });
 
-  fetch(`${ROOT}?action=getAttendance&class=${classID}&ca=${ca}`)
-    .then(r => r.json())
-    .then(list => {
-      if (thisSession !== sessionID) return;
-
-      let body = document.getElementById("attendanceBody");
-      body.innerHTML = "";
-
-      list.forEach(r => {
-        body.innerHTML += `
-          <tr>
-            <td>${r.StudentID}</td>
-            <td>${r.Name}</td>
-            <td>${formatTime(r.CheckIn)}</td>
-            <td>${formatTime(r.CheckOut)}</td>
-          </tr>`;
-      });
-    });
-}
-
-/* FORMAT TIME */
-function formatTime(t) {
-  if (!t) return "";
-  return new Date(t).toLocaleString("vi-VN");
-}
-
-/* BUTTON RENDER */
-function renderButtons(obj) {
-  let btn = document.getElementById("buttonsArea");
-  btn.innerHTML = "";
-
-  if (!obj.Start) {
-    btn.innerHTML += `<button class="btn btn-warning me-2" onclick="startClass()">Bắt đầu</button>`;
-  } else {
-    btn.innerHTML += `<button class="btn btn-danger me-2" onclick="stopClass()">Dừng</button>`;
-  }
-
-  if (obj.Mode === "Register") return;
-
-  if (obj.Mode === "Attendance") {
-    btn.innerHTML += `<button class="btn btn-danger" onclick="changeMode('Checkout')">Chuyển sang Check-out</button>`;
-    return;
-  }
-
-  if (obj.Mode === "Checkout") {
-    btn.innerHTML += `<button class="btn btn-success" onclick="changeMode('Attendance')">Chuyển sang Điểm danh</button>`;
-    return;
-  }
-}
-
-/* START */
-function startClass() {
-  let classID = currentClass;
-  let ca = currentCa;
-
-  showLoading();
-  fetch(`${ROOT}?action=start&class=${classID}&ca=${ca}`)
-    .then(() => refreshAll())
-    .finally(hideLoading);
-}
-
-/* STOP */
-function stopClass() {
-  let classID = currentClass;
-
-  showLoading();
-  fetch(`${ROOT}?action=stop&class=${classID}`)
-    .then(() => refreshAll())
-    .finally(hideLoading);
-}
-
-/* CHANGE MODE */
-function changeMode(mode) {
-  let classID = currentClass;
-
-  showLoading();
-  fetch(`${ROOT}?action=changeMode&class=${classID}&mode=${mode}`)
-    .then(() => refreshAll())
-    .finally(hideLoading);
-}
-
-/* AUTO LOOP */
-setInterval(() => {
-  refreshAll();
-}, 1000);
-
-/* ĐỔI LỚP */
-document.getElementById("classSelect").addEventListener("change", (e) => {
-  currentClass = e.target.value;
-  sessionID++;     // Tăng session
-  resetUI();
-  refreshAll();
-});
-
-/* ĐỔI CA */
-document.getElementById("caSelect").addEventListener("change", (e) => {
-  currentCa = e.target.value;
-  sessionID++;
-  resetUI();
-  refreshAll();
-});
-
-/* INIT */
-document.addEventListener("DOMContentLoaded", () => {
-  currentCa = document.getElementById("caSelect").value;
-  loadClasses();
-});
-</script>
+  </script>
 
 </body>
+
 </html>
