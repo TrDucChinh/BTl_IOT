@@ -18,7 +18,7 @@ const char* ssid = "P2407-DucChinh";
 const char* pass = "ducchinh";
 
 // API BASE
-String API_BASE = "https://script.google.com/macros/s/AKfycbzYAAH_6jHNbeXII324G0ROwiS3tNiNb27kR3AZqNpZHc88VE4lKQ8af6796tjFLMyS/exec";
+String API_BASE = "https://script.google.com/macros/s/AKfycbyxb7WrXFDOlkKjSChvhm1kBq-yiGBzezWE4wFqAKX2RPMkj7rdzQkyWCoc8enOdY8fng/exec";
 
 // STATE
 String activeClass = "";

@@ -33,8 +33,9 @@
 
 <body class="container mt-4">
 
+  <!-- LOADING -->
   <div id="loadingOverlay">
-    <div class="spinner-border text-primary" style="width: 4rem; height: 4rem;"></div>
+    <div class="spinner-border text-primary" role="status" style="width: 4rem; height: 4rem;"></div>
   </div>
 
   <h2 class="mb-4 text-center">Quản lý lớp học theo Ca</h2>
@@ -57,11 +58,11 @@
     </select>
   </div>
 
-  <!-- START STATUS -->
+  <!-- TRẠNG THÁI START -->
   <div id="startStatus"></div>
 
   <!-- MODE HIỆN TẠI -->
-  <div class="mt-3">
+  <div class="mb-3 mt-3">
     <label class="fw-bold">Chế độ hiện tại:</label>
     <div id="currentMode" class="fs-5 text-primary"></div>
   </div>
@@ -75,29 +76,32 @@
   <div class="row mt-3">
     <div class="col-md-3">
       <div class="stat-box bg-primary">
-        <h4 id="statTotal">0</h4><p>Tổng sinh viên</p>
+        <h4 id="statTotal">0</h4>
+        <p>Tổng sinh viên</p>
       </div>
     </div>
     <div class="col-md-3">
       <div class="stat-box bg-success">
-        <h4 id="statIn">0</h4><p>Đã Check-In</p>
+        <h4 id="statIn">0</h4>
+        <p>Đã Check-In</p>
       </div>
     </div>
     <div class="col-md-3">
       <div class="stat-box bg-danger">
-        <h4 id="statLeftIn">0</h4><p>Chưa Check-In</p>
+        <h4 id="statLeftIn">0</h4>
+        <p>Chưa Check-In</p>
       </div>
     </div>
     <div class="col-md-3">
       <div class="stat-box bg-warning">
-        <h4 id="statLeftOut">0</h4><p>Chưa Check-Out</p>
+        <h4 id="statLeftOut">0</h4>
+        <p>Chưa Check-Out</p>
       </div>
     </div>
   </div>
 
   <!-- DANH SÁCH ĐIỂM DANH -->
   <h4 class="mt-4">Danh sách điểm danh realtime</h4>
-
   <table class="table table-bordered mt-2">
     <thead class="table-dark">
       <tr>
@@ -111,13 +115,13 @@
   </table>
 
 <script>
-const ROOT = "https://script.google.com/macros/s/AKfycbzYAAH_6jHNbeXII324G0ROwiS3tNiNb27kR3AZqNpZHc88VE4lKQ8af6796tjFLMyS/exec";
+const ROOT = "https://script.google.com/macros/s/AKfycbyxb7WrXFDOlkKjSChvhm1kBq-yiGBzezWE4wFqAKX2RPMkj7rdzQkyWCoc8enOdY8fng/exec";
 
-let refreshPaused = false;
+let sessionID = 0;      
 let currentClass = "";
-let currentCa    = "";
+let currentCa = "";
 
-/* LOADING */
+/* SHOW/HIDE LOADING */
 function showLoading() { document.getElementById("loadingOverlay").style.display = "flex"; }
 function hideLoading() { document.getElementById("loadingOverlay").style.display = "none"; }
 
@@ -138,46 +142,90 @@ function loadClasses() {
   fetch(ROOT + "?action=getClasses&nocache=" + Date.now())
     .then(r => r.json())
     .then(data => {
-      let sel = document.getElementById("classSelect");
-      sel.innerHTML = "";
-      data.forEach(c => sel.innerHTML += `<option value="${c.ClassID}">${c.ClassName}</option>`);
+      let select = document.getElementById("classSelect");
+      select.innerHTML = "";
+      data.forEach(c => {
+        select.innerHTML += `<option value="${c.ClassID}">${c.ClassName}</option>`;
+      });
 
-      currentClass = sel.value;
-      refreshModeAndStart();
-      loadStats();
-      loadAttendance();
+      if (!currentClass) currentClass = select.value;
+
+      refreshAll();
     });
 }
 
-/* REFRESH MODE + START */
-function refreshModeAndStart() {
-  if (refreshPaused) return;
+/* LOAD FULL UI */
+function refreshAll() {
+  let thisSession = sessionID;  // gắn ID
 
+  let classID = currentClass;
+  let ca = currentCa;
+
+  // Nếu request về nhưng sessionID thay đổi → bỏ qua
   fetch(ROOT + "?action=getClasses&nocache=" + Date.now())
     .then(r => r.json())
     .then(list => {
-      let obj = list.find(x => x.ClassID === currentClass);
+      if (thisSession !== sessionID) return;
+
+      let obj = list.find(c => c.ClassID === classID);
       if (!obj) return;
 
       document.getElementById("currentMode").innerText = obj.Mode;
 
-      let s = document.getElementById("startStatus");
-      s.innerText = obj.Start ? "Trạng thái: ĐANG HOẠT ĐỘNG" : "Trạng thái: ĐÃ TẮT";
-      s.style.color = obj.Start ? "#28a745" : "#d9534f";
+      let st = document.getElementById("startStatus");
+      st.innerText = obj.Start ? "Trạng thái: ĐANG HOẠT ĐỘNG" : "Trạng thái: ĐÃ TẮT";
+      st.style.color = obj.Start ? "#28a745" : "#d9534f";
 
       renderButtons(obj);
     });
+
+  fetch(`${ROOT}?action=checkUpdate&class=${classID}&ca=${ca}`)
+    .then(r => r.json())
+    .then(st => {
+      if (thisSession !== sessionID) return;
+
+      document.getElementById("statTotal").innerText = st.total;
+      document.getElementById("statIn").innerText = st.checkedIn;
+      document.getElementById("statLeftIn").innerText = st.leftToCheckIn;
+      document.getElementById("statLeftOut").innerText = st.leftToCheckOut;
+    });
+
+  fetch(`${ROOT}?action=getAttendance&class=${classID}&ca=${ca}`)
+    .then(r => r.json())
+    .then(list => {
+      if (thisSession !== sessionID) return;
+
+      let body = document.getElementById("attendanceBody");
+      body.innerHTML = "";
+
+      list.forEach(r => {
+        body.innerHTML += `
+          <tr>
+            <td>${r.StudentID}</td>
+            <td>${r.Name}</td>
+            <td>${formatTime(r.CheckIn)}</td>
+            <td>${formatTime(r.CheckOut)}</td>
+          </tr>`;
+      });
+    });
 }
 
-/* RENDER BUTTONS */
+/* FORMAT TIME */
+function formatTime(t) {
+  if (!t) return "";
+  return new Date(t).toLocaleString("vi-VN");
+}
+
+/* BUTTON RENDER */
 function renderButtons(obj) {
   let btn = document.getElementById("buttonsArea");
   btn.innerHTML = "";
 
-  if (!obj.Start)
+  if (!obj.Start) {
     btn.innerHTML += `<button class="btn btn-warning me-2" onclick="startClass()">Bắt đầu</button>`;
-  else
+  } else {
     btn.innerHTML += `<button class="btn btn-danger me-2" onclick="stopClass()">Dừng</button>`;
+  }
 
   if (obj.Mode === "Register") return;
 
@@ -192,96 +240,57 @@ function renderButtons(obj) {
   }
 }
 
-/* START CLASS */
+/* START */
 function startClass() {
+  let classID = currentClass;
+  let ca = currentCa;
+
   showLoading();
-  fetch(`${ROOT}?action=start&class=${currentClass}&ca=${currentCa}`)
-    .then(() => loadClasses())
-    .finally(() => hideLoading());
+  fetch(`${ROOT}?action=start&class=${classID}&ca=${ca}`)
+    .then(() => refreshAll())
+    .finally(hideLoading);
 }
 
-/* STOP CLASS */
+/* STOP */
 function stopClass() {
+  let classID = currentClass;
+
   showLoading();
-  fetch(`${ROOT}?action=stop&class=${currentClass}`)
-    .then(() => loadClasses())
-    .finally(() => hideLoading());
+  fetch(`${ROOT}?action=stop&class=${classID}`)
+    .then(() => refreshAll())
+    .finally(hideLoading);
 }
 
 /* CHANGE MODE */
 function changeMode(mode) {
+  let classID = currentClass;
+
   showLoading();
-  fetch(`${ROOT}?action=changeMode&class=${currentClass}&mode=${mode}`)
-    .then(() => loadClasses())
-    .finally(() => hideLoading());
+  fetch(`${ROOT}?action=changeMode&class=${classID}&mode=${mode}`)
+    .then(() => refreshAll())
+    .finally(hideLoading);
 }
 
-/* DASHBOARD */
-function loadStats() {
-  if (refreshPaused) return;
-
-  fetch(`${ROOT}?action=checkUpdate&class=${currentClass}&ca=${currentCa}`)
-    .then(r => r.json())
-    .then(s => {
-      document.getElementById("statTotal").innerText = s.total;
-      document.getElementById("statIn").innerText = s.checkedIn;
-      document.getElementById("statLeftIn").innerText = s.leftToCheckIn;
-      document.getElementById("statLeftOut").innerText = s.leftToCheckOut;
-    });
-}
-
-/* FORMAT TIME */
-function formatTime(t) {
-  if (!t) return "";
-  return new Date(t).toLocaleString("vi-VN");
-}
-
-/* LOAD ATTENDANCE */
-function loadAttendance() {
-  if (refreshPaused) return;
-
-  fetch(`${ROOT}?action=getAttendance&class=${currentClass}&ca=${currentCa}`)
-    .then(r => r.json())
-    .then(list => {
-      let b = document.getElementById("attendanceBody");
-      b.innerHTML = "";
-      list.forEach(x => {
-        b.innerHTML += `
-          <tr>
-            <td>${x.StudentID}</td>
-            <td>${x.Name}</td>
-            <td>${formatTime(x.CheckIn)}</td>
-            <td>${formatTime(x.CheckOut)}</td>
-          </tr>`;
-      });
-    });
-}
-
-/* AUTO REFRESH */
+/* AUTO LOOP */
 setInterval(() => {
-  refreshModeAndStart();
-  loadStats();
-  loadAttendance();
-}, 900);
+  refreshAll();
+}, 1000);
 
-/* KHI ĐỔI LỚP HOẶC CA */
-function onClassOrCaChanged() {
-  refreshPaused = true;
+/* ĐỔI LỚP */
+document.getElementById("classSelect").addEventListener("change", (e) => {
+  currentClass = e.target.value;
+  sessionID++;     // Tăng session
   resetUI();
+  refreshAll();
+});
 
-  currentClass = document.getElementById("classSelect").value;
-  currentCa    = document.getElementById("caSelect").value;
-
-  setTimeout(() => {
-    refreshPaused = false;
-    refreshModeAndStart();
-    loadStats();
-    loadAttendance();
-  }, 500);
-}
-
-document.getElementById("classSelect").addEventListener("change", onClassOrCaChanged);
-document.getElementById("caSelect").addEventListener("change", onClassOrCaChanged);
+/* ĐỔI CA */
+document.getElementById("caSelect").addEventListener("change", (e) => {
+  currentCa = e.target.value;
+  sessionID++;
+  resetUI();
+  refreshAll();
+});
 
 /* INIT */
 document.addEventListener("DOMContentLoaded", () => {
